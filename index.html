@@ -373,7 +373,9 @@ function startAnalysis() {
   getDetector().then(function(det) {
     loadingText.textContent = 'Анализ позы…';
     loadingSub.textContent  = cw + '×' + ch + ', backend: ' + (tf.getBackend ? tf.getBackend() : '?');
-    return det.estimatePoses(_poseCanvas);
+    // Pass ImageData (CPU pixels) instead of canvas — avoids WebGL texImage2D bugs on Android WebView
+    var imageData = _poseCanvas.getContext('2d').getImageData(0, 0, _poseCanvas.width, _poseCanvas.height);
+    return det.estimatePoses(imageData);
   }).then(function(poses) {
     clearTimeout(loadTimeout);
     loadingEl.style.display = 'none';
