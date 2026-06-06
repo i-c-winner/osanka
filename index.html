@@ -255,6 +255,55 @@ function moveNetToKps(keypoints) {
   });
 }
 
+// ── EXIF orientation reader (parses first 64KB of JPEG) ──────────────────────
+function readExifOrientation(file, cb) {
+  var fr = new FileReader();
+  fr.onload = function(e) {
+    try {
+      var v = new DataView(e.target.result);
+      if (v.getUint16(0, false) !== 0xFFD8) { cb(1); return; }
+      var len = v.byteLength, off = 2;
+      while (off < len) {
+        var marker = v.getUint16(off, false); off += 2;
+        if (marker === 0xFFE1) {
+          off += 2; // skip segment length
+          if (v.getUint32(off, false) !== 0x45786966) { cb(1); return; } // 'Exif'
+          var le = v.getUint16(off + 6, false) === 0x4949;
+          var ifd = off + 6 + v.getUint32(off + 10, le);
+          var entries = v.getUint16(ifd, le);
+          for (var i = 0; i < entries; i++) {
+            if (v.getUint16(ifd + 2 + i * 12, le) === 0x0112) {
+              cb(v.getUint16(ifd + 2 + i * 12 + 8, le)); return;
+            }
+          }
+          cb(1); return;
+        } else if ((marker & 0xFF00) !== 0xFF00) break;
+        else off += v.getUint16(off, false);
+      }
+    } catch(e) {}
+    cb(1);
+  };
+  fr.onerror = function() { cb(1); };
+  fr.readAsArrayBuffer(file.slice(0, 65536));
+}
+
+// Draw image onto canvas with correct EXIF orientation applied manually
+function drawWithExif(ctx, img, orientation, cw, ch) {
+  ctx.save();
+  switch (orientation) {
+    case 2: ctx.transform(-1,0,0,1,cw,0); break;
+    case 3: ctx.transform(-1,0,0,-1,cw,ch); break;
+    case 4: ctx.transform(1,0,0,-1,0,ch); break;
+    case 5: ctx.transform(0,1,1,0,0,0); break;
+    case 6: ctx.transform(0,1,-1,0,ch,0); break;  // 90° CW — most common phone portrait
+    case 7: ctx.transform(0,-1,-1,0,ch,cw); break;
+    case 8: ctx.transform(0,-1,1,0,0,cw); break;
+  }
+  var swapped = (orientation >= 5 && orientation <= 8);
+  ctx.drawImage(img, 0, 0, swapped ? ch : cw, swapped ? cw : ch);
+  ctx.restore();
+}
+
 function processFile(file) {
   if (!file.type.startsWith('image/')) { showError('Выберите файл изображения (JPG, PNG, WebP…)'); return; }
   errorEl.style.display       = 'none';
@@ -264,17 +313,38 @@ function processFile(file) {
   loadingText.textContent     = 'Загрузка модели MoveNet…';
   loadingSub.textContent      = 'Первый запуск загружает ~6 МБ';
 
-  var reader = new FileReader();
-  reader.onerror = function(){ showError('Не удалось прочитать файл изображения.'); };
-  reader.onload = function(e) {
-    sourceImg.onerror = function(){ showError('Не удалось загрузить изображение. Попробуйте JPG или PNG.'); };
-    sourceImg.onload  = startAnalysis;
-    sourceImg.src     = e.target.result;
-  };
-  reader.readAsDataURL(file);
+  readExifOrientation(file, function(orientation) {
+    var reader = new FileReader();
+    reader.onerror = function(){ showError('Не удалось прочитать файл изображения.'); };
+    reader.onload = function(e) {
+      var tmp = new Image();
+      tmp.onerror = function(){ showError('Не удалось загрузить изображение.'); };
+      tmp.onload = function() {
+        var rawW = tmp.naturalWidth  || tmp.width  || 640;
+        var rawH = tmp.naturalHeight || tmp.height || 640;
+        var swapped = (orientation >= 5 && orientation <= 8);
+        var finalW = swapped ? rawH : rawW;
+        var finalH = swapped ? rawW : rawH;
+        var MAX = 800;
+        var scale = Math.min(1, MAX / Math.max(finalW, finalH));
+        var cw = Math.round(finalW * scale);
+        var ch = Math.round(finalH * scale);
+        _poseCanvas = document.createElement('canvas');
+        _poseCanvas.width  = cw;
+        _poseCanvas.height = ch;
+        drawWithExif(_poseCanvas.getContext('2d'), tmp, orientation, cw, ch);
+        // Also update sourceImg for skeleton overlay
+        sourceImg._procW = cw; sourceImg._procH = ch;
+        sourceImg.onload = startAnalysis;
+        sourceImg.src = _poseCanvas.toDataURL('image/jpeg', 0.85);
+      };
+      tmp.src = e.target.result;
+    };
+    reader.readAsDataURL(file);
+  });
 }
 
-var _poseCanvas = null; // resized canvas passed to TF.js
+var _poseCanvas = null;
 
 function startAnalysis() {
   loadTimeout = setTimeout(function(){
@@ -282,25 +352,13 @@ function startAnalysis() {
     uploadSection.style.display = 'block';
   }, 90000);
 
-  var origW = sourceImg.naturalWidth  || sourceImg.width  || 640;
-  var origH = sourceImg.naturalHeight || sourceImg.height || 640;
-
-  // Resize to max 800px — critical for mobile: 12MP photos crash WebView's TF.js
-  // drawImage also applies browser EXIF rotation automatically
-  var MAX = 800;
-  var scale = Math.min(1, MAX / Math.max(origW, origH));
-  var cw = Math.round(origW * scale);
-  var ch = Math.round(origH * scale);
-  _poseCanvas = document.createElement('canvas');
-  _poseCanvas.width  = cw;
-  _poseCanvas.height = ch;
-  _poseCanvas.getContext('2d').drawImage(sourceImg, 0, 0, cw, ch);
-
-  loadingSub.textContent = 'Масштаб: ' + origW + '×' + origH + ' → ' + cw + '×' + ch;
+  var cw = _poseCanvas ? _poseCanvas.width  : 640;
+  var ch = _poseCanvas ? _poseCanvas.height : 640;
+  loadingSub.textContent = 'Размер: ' + cw + '×' + ch + 'px';
 
   getDetector().then(function(det) {
     loadingText.textContent = 'Анализ позы…';
-    loadingSub.textContent  = cw + '×' + ch + 'px, backend: ' + (tf.getBackend ? tf.getBackend() : '?');
+    loadingSub.textContent  = cw + '×' + ch + ', backend: ' + (tf.getBackend ? tf.getBackend() : '?');
     return det.estimatePoses(_poseCanvas);
   }).then(function(poses) {
     clearTimeout(loadTimeout);
@@ -352,8 +410,8 @@ function onPose(pose) {
   resultsEl.style.display = 'block';
 }
 
-function imgW() { return _poseCanvas ? _poseCanvas.width  : (sourceImg.naturalWidth  || 640); }
-function imgH() { return _poseCanvas ? _poseCanvas.height : (sourceImg.naturalHeight || 640); }
+function imgW() { return (_poseCanvas && _poseCanvas.width)  || sourceImg._procW || sourceImg.naturalWidth  || 640; }
+function imgH() { return (_poseCanvas && _poseCanvas.height) || sourceImg._procH || sourceImg.naturalHeight || 640; }
 
 // ── View detection ────────────────────────────────────────────────────────────
 function detectView(k) {
