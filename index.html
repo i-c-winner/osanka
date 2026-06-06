@@ -255,10 +255,14 @@ function processFile(file) {
   loadingText.textContent     = 'Загрузка модели MoveNet…';
   loadingSub.textContent      = 'Первый запуск загружает ~6 МБ';
 
-  var url = URL.createObjectURL(file);
-  sourceImg.onload  = startAnalysis;
-  sourceImg.onerror = function(){ showError('Не удалось загрузить изображение.'); };
-  sourceImg.src = url;
+  var reader = new FileReader();
+  reader.onerror = function(){ showError('Не удалось прочитать файл изображения.'); };
+  reader.onload = function(e) {
+    sourceImg.onload  = startAnalysis;
+    sourceImg.onerror = function(){ showError('Не удалось загрузить изображение. Попробуйте JPG или PNG.'); };
+    sourceImg.src = e.target.result;
+  };
+  reader.readAsDataURL(file);
 }
 
 function startAnalysis() {
