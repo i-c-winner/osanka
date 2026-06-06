@@ -85,6 +85,7 @@ header p { color: #8892a4; margin-top: 8px; font-size: .95rem; }
 .banner-icon{font-size:1.5rem;}
 
 .actions{display:flex;gap:12px;margin-top:20px;flex-wrap:wrap;}
+#reset-btn { position:fixed; bottom:24px; right:24px; z-index:100; box-shadow:0 4px 20px rgba(0,0,0,.5); display:none; }
 #error-msg{display:none;background:#3b1f1f;border:1px solid #5c2a2a;border-radius:10px;color:#f87171;padding:14px 18px;font-size:.88rem;margin-top:16px;line-height:1.6;}
 
 /* Camera overlay */
@@ -159,11 +160,10 @@ header p { color: #8892a4; margin-top: 8px; font-size: .95rem; }
       <div class="card"><h3>Оценка по зонам</h3><div id="scores-container"></div></div>
       <div class="card" style="grid-column:1/-1"><h3>Рекомендации</h3><ul class="rec-list" id="recs-container"></ul></div>
     </div>
-    <div class="actions">
-      <button class="btn btn-secondary" id="reset-btn">← Загрузить другое фото</button>
-    </div>
   </div>
 </div>
+
+<button class="btn btn-secondary" id="reset-btn">← Другое фото</button>
 
 <img id="source-img" style="display:none">
 
@@ -214,8 +214,9 @@ var loadingSub    = document.getElementById('loading-sub');
 var resultsEl     = document.getElementById('results');
 var errorEl       = document.getElementById('error-msg');
 var sourceImg     = document.getElementById('source-img');
+var resetBtn      = document.getElementById('reset-btn');
 
-document.getElementById('reset-btn').addEventListener('click', resetApp);
+resetBtn.addEventListener('click', resetApp);
 
 uploadSection.addEventListener('dragover', function(e){ e.preventDefault(); uploadSection.classList.add('drag-over'); });
 uploadSection.addEventListener('dragleave', function(){ uploadSection.classList.remove('drag-over'); });
@@ -485,6 +486,7 @@ function onPose(pose) {
 
   renderResults(analysis);
   resultsEl.style.display = 'block';
+  resetBtn.style.display  = 'inline-flex';
 }
 
 function imgW() { return (_poseCanvas && _poseCanvas.width)  || sourceImg._procW || sourceImg.naturalWidth  || 640; }
@@ -802,6 +804,7 @@ function resetApp() {
   loadingEl.style.display     = 'none';
   errorEl.style.display       = 'none';
   uploadSection.style.display = 'block';
+  resetBtn.style.display      = 'none';
   fileInput.value = '';
   stopCamera();
 }
