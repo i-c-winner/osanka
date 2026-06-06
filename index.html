@@ -268,22 +268,34 @@ function processFile(file) {
   reader.readAsDataURL(file);
 }
 
+var _poseCanvas = null; // resized canvas passed to TF.js
+
 function startAnalysis() {
   loadTimeout = setTimeout(function(){
     showError('Время ожидания истекло. Проверьте интернет-соединение и обновите страницу.');
     uploadSection.style.display = 'block';
   }, 90000);
 
-  var w = sourceImg.naturalWidth  || sourceImg.width  || 0;
-  var h = sourceImg.naturalHeight || sourceImg.height || 0;
+  var origW = sourceImg.naturalWidth  || sourceImg.width  || 640;
+  var origH = sourceImg.naturalHeight || sourceImg.height || 640;
 
-  // Show debug info so we can diagnose issues in any environment
-  loadingSub.textContent = 'Изображение: ' + w + '×' + h + 'px, backend: ' + (tf.getBackend ? tf.getBackend() : '?');
+  // Resize to max 800px — critical for mobile: 12MP photos crash WebView's TF.js
+  // drawImage also applies browser EXIF rotation automatically
+  var MAX = 800;
+  var scale = Math.min(1, MAX / Math.max(origW, origH));
+  var cw = Math.round(origW * scale);
+  var ch = Math.round(origH * scale);
+  _poseCanvas = document.createElement('canvas');
+  _poseCanvas.width  = cw;
+  _poseCanvas.height = ch;
+  _poseCanvas.getContext('2d').drawImage(sourceImg, 0, 0, cw, ch);
+
+  loadingSub.textContent = 'Масштаб: ' + origW + '×' + origH + ' → ' + cw + '×' + ch;
 
   getDetector().then(function(det) {
     loadingText.textContent = 'Анализ позы…';
-    loadingSub.textContent  = 'backend: ' + (tf.getBackend ? tf.getBackend() : '?') + ', размер: ' + w + '×' + h;
-    return det.estimatePoses(sourceImg);
+    loadingSub.textContent  = cw + '×' + ch + 'px, backend: ' + (tf.getBackend ? tf.getBackend() : '?');
+    return det.estimatePoses(_poseCanvas);
   }).then(function(poses) {
     clearTimeout(loadTimeout);
     loadingEl.style.display = 'none';
@@ -330,8 +342,8 @@ function onPose(pose) {
   resultsEl.style.display = 'block';
 }
 
-function imgW() { return sourceImg.naturalWidth  || sourceImg.width  || 640; }
-function imgH() { return sourceImg.naturalHeight || sourceImg.height || 640; }
+function imgW() { return _poseCanvas ? _poseCanvas.width  : (sourceImg.naturalWidth  || 640); }
+function imgH() { return _poseCanvas ? _poseCanvas.height : (sourceImg.naturalHeight || 640); }
 
 // ── View detection ────────────────────────────────────────────────────────────
 function detectView(k) {
@@ -346,14 +358,14 @@ function detectView(k) {
 function drawSkeleton(k, viewType) {
   var canvas = document.getElementById('output-canvas');
   var ctx    = canvas.getContext('2d');
-  var img    = sourceImg;
+  var src    = _poseCanvas || sourceImg;
   var srcW   = imgW();
   var srcH   = imgH();
   var maxW   = Math.min(srcW, 820);
   var scale  = maxW / srcW;
   canvas.width  = srcW * scale;
   canvas.height = srcH * scale;
-  ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+  ctx.drawImage(src, 0, 0, canvas.width, canvas.height);
 
   function px(name){ var kp = k[name]; return { x: kp.position.x*scale, y: kp.position.y*scale, s: kp.score }; }
 
