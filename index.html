@@ -233,9 +233,9 @@ var MN_NAMES = {
 
 function getDetector() {
   if (detectorInstance) return Promise.resolve(detectorInstance);
-  // Explicitly init backend: try webgl, fall back to cpu
+  // Force CPU backend — WebGL on Android Telegram WebView gives wrong model outputs
   var init = (typeof tf !== 'undefined' && typeof tf.setBackend === 'function')
-    ? tf.setBackend('webgl').catch(function(){ return tf.setBackend('cpu'); }).then(function(){ return tf.ready(); })
+    ? tf.setBackend('cpu').then(function(){ return tf.ready(); })
     : Promise.resolve();
   return init.then(function() {
     return poseDetection.createDetector(
