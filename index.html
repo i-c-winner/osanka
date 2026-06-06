@@ -224,7 +224,7 @@ uploadSection.addEventListener('drop', function(e){
   if (e.dataTransfer.files[0]) processFile(e.dataTransfer.files[0]);
 });
 fileInput.addEventListener('change', function(e){
-  if (e.target.files[0]) processFile(e.target.files[0]);
+  if (e.target.files[0]) { processFile(e.target.files[0]); fileInput.value = ''; }
 });
 
 // ── In-app camera via getUserMedia ────────────────────────────────────────────
@@ -808,9 +808,12 @@ function resetApp() {
 
 function showError(msg) {
   clearTimeout(loadTimeout);
-  loadingEl.style.display = 'none';
-  errorEl.style.display   = 'block';
-  errorEl.innerHTML = '⚠️ ' + msg;
+  loadingEl.style.display     = 'none';
+  uploadSection.style.display = 'none';
+  resultsEl.style.display     = 'none';
+  errorEl.style.display       = 'block';
+  errorEl.innerHTML = '⚠️ ' + msg +
+    '<br><br><button onclick="resetApp()" style="background:#232738;border:1px solid #2e3349;color:#c8cfe0;border-radius:10px;padding:10px 20px;cursor:pointer;font-size:.9rem;width:100%">← Выбрать другое фото</button>';
 }
 </script>
 </body>
