@@ -268,16 +268,35 @@ function processFile(file) {
   reader.readAsDataURL(file);
 }
 
+function imageToCanvas(img) {
+  // Draw HTMLImageElement onto a canvas — required for TF.js in mobile WebViews
+  var maxDim = 1280;
+  var w = img.naturalWidth  || img.width;
+  var h = img.naturalHeight || img.height;
+  if (w === 0 || h === 0) { w = 640; h = 640; }
+  var scale = Math.min(1, maxDim / Math.max(w, h));
+  var c = document.createElement('canvas');
+  c.width  = Math.round(w * scale);
+  c.height = Math.round(h * scale);
+  c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+  return c;
+}
+
 function startAnalysis() {
   loadTimeout = setTimeout(function(){
     showError('Время ожидания истекло. Проверьте интернет-соединение и обновите страницу.');
     uploadSection.style.display = 'block';
   }, 90000);
 
+  var inputCanvas = imageToCanvas(sourceImg);
+  // Keep naturalWidth/Height in sync so downstream scaling stays correct
+  sourceImg._procWidth  = inputCanvas.width;
+  sourceImg._procHeight = inputCanvas.height;
+
   getDetector().then(function(det) {
     loadingText.textContent = 'Анализ позы…';
     loadingSub.textContent  = '';
-    return det.estimatePoses(sourceImg);
+    return det.estimatePoses(inputCanvas);
   }).then(function(poses) {
     clearTimeout(loadTimeout);
     loadingEl.style.display = 'none';
@@ -324,11 +343,14 @@ function onPose(pose) {
   resultsEl.style.display = 'block';
 }
 
+function imgW() { return sourceImg._procWidth  || sourceImg.naturalWidth  || 640; }
+function imgH() { return sourceImg._procHeight || sourceImg.naturalHeight || 640; }
+
 // ── View detection ────────────────────────────────────────────────────────────
 function detectView(k) {
   var ls = k['leftShoulder'], rs = k['rightShoulder'];
   if (!ls || !rs || ls.score < 0.2 || rs.score < 0.2) return 'front';
-  var W = sourceImg.naturalWidth;
+  var W = imgW();
   var spread = Math.abs(ls.position.x - rs.position.x) / W;
   return spread < 0.13 ? 'side' : 'front';
 }
@@ -338,10 +360,12 @@ function drawSkeleton(k, viewType) {
   var canvas = document.getElementById('output-canvas');
   var ctx    = canvas.getContext('2d');
   var img    = sourceImg;
-  var maxW   = Math.min(img.naturalWidth, 820);
-  var scale  = maxW / img.naturalWidth;
-  canvas.width  = img.naturalWidth  * scale;
-  canvas.height = img.naturalHeight * scale;
+  var srcW   = imgW();
+  var srcH   = imgH();
+  var maxW   = Math.min(srcW, 820);
+  var scale  = maxW / srcW;
+  canvas.width  = srcW * scale;
+  canvas.height = srcH * scale;
   ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
 
   function px(name){ var kp = k[name]; return { x: kp.position.x*scale, y: kp.position.y*scale, s: kp.score }; }
@@ -423,7 +447,7 @@ function drawSkeleton(k, viewType) {
 
 // ── Analysis: front view ──────────────────────────────────────────────────────
 function analyzePosture(k) {
-  var W = sourceImg.naturalWidth, H = sourceImg.naturalHeight;
+  var W = imgW(), H = imgH();
   function n(name){ var kp = k[name]; return { x: kp.position.x/W, y: kp.position.y/H, s: kp.score }; }
   function r2d(r){ return Math.abs(r*180/Math.PI); }
   function tilt(a, b){ var raw = r2d(Math.atan2(b.y-a.y, b.x-a.x)); return Math.min(raw, 180-raw); }
@@ -504,7 +528,7 @@ function analyzePosture(k) {
 
 // ── Analysis: side view ───────────────────────────────────────────────────────
 function analyzePostureSide(k) {
-  var W = sourceImg.naturalWidth, H = sourceImg.naturalHeight;
+  var W = imgW(), H = imgH();
   function n(name){ var kp = k[name]; return { x: kp.position.x/W, y: kp.position.y/H, s: kp.score }; }
 
   var ls = n('leftShoulder'), rs = n('rightShoulder');
