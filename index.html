@@ -320,23 +320,37 @@ function processFile(file) {
       var tmp = new Image();
       tmp.onerror = function(){ showError('Не удалось загрузить изображение.'); };
       tmp.onload = function() {
-        var rawW = tmp.naturalWidth  || tmp.width  || 640;
-        var rawH = tmp.naturalHeight || tmp.height || 640;
-        var swapped = (orientation >= 5 && orientation <= 8);
-        var finalW = swapped ? rawH : rawW;
-        var finalH = swapped ? rawW : rawH;
+        var nw = tmp.naturalWidth  || tmp.width  || 640;
+        var nh = tmp.naturalHeight || tmp.height || 640;
+
+        // EXIF orientations 5-8 mean the raw JPEG is "transposed" vs display.
+        // Chrome 81+ already applies EXIF: naturalWidth/Height reflect display dims.
+        // Older WebViews return raw pixel dims.
+        // Heuristic: if EXIF says image should be swapped (landscape→portrait),
+        // check if the browser already did it (nw < nh = portrait already).
+        var exifSwap = (orientation >= 5 && orientation <= 8);
+        var browserDidSwap = exifSwap && (nw < nh); // browser already portrait-corrected
+        var needManualSwap = exifSwap && !browserDidSwap;
+        var effectiveOrientation = browserDidSwap ? 1 : orientation;
+
+        var finalW = needManualSwap ? nh : nw;
+        var finalH = needManualSwap ? nw : nh;
+
         var MAX = 800;
         var scale = Math.min(1, MAX / Math.max(finalW, finalH));
         var cw = Math.round(finalW * scale);
         var ch = Math.round(finalH * scale);
+
         _poseCanvas = document.createElement('canvas');
         _poseCanvas.width  = cw;
         _poseCanvas.height = ch;
-        drawWithExif(_poseCanvas.getContext('2d'), tmp, orientation, cw, ch);
-        // Also update sourceImg for skeleton overlay
+        drawWithExif(_poseCanvas.getContext('2d'), tmp, effectiveOrientation, cw, ch);
+
         sourceImg._procW = cw; sourceImg._procH = ch;
         sourceImg.onload = startAnalysis;
         sourceImg.src = _poseCanvas.toDataURL('image/jpeg', 0.85);
+
+        loadingSub.textContent = 'EXIF:' + orientation + (browserDidSwap?' (браузер)':(needManualSwap?' (вручную)':' (норм)')) + ' → ' + cw + '×' + ch;
       };
       tmp.src = e.target.result;
     };
