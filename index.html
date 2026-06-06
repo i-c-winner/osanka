@@ -236,14 +236,23 @@ document.getElementById('open-camera-btn').addEventListener('click', function() 
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
     showError('Камера недоступна в этом браузере.'); return;
   }
-  navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false })
+  var constraints = { video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false };
+  navigator.mediaDevices.getUserMedia(constraints)
     .then(function(stream) {
       _cameraStream = stream;
       cameraVideo.srcObject = stream;
       cameraOverlay.classList.add('active');
+      var playPromise = cameraVideo.play();
+      if (playPromise !== undefined) {
+        playPromise.catch(function(e) {
+          // Autoplay blocked — user tap will still trigger capture
+          console.warn('Camera play error:', e);
+        });
+      }
     })
     .catch(function(err) {
-      showError('Нет доступа к камере: ' + (err.message || err.name));
+      // Fallback: getUserMedia not supported in this WebView — use file input
+      showError('Камера недоступна в Telegram (' + (err.name || err.message) + '). Используйте «Выбрать из галереи».');
     });
 });
 
