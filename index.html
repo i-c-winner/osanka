@@ -86,6 +86,14 @@ header p { color: #8892a4; margin-top: 8px; font-size: .95rem; }
 
 .actions{display:flex;gap:12px;margin-top:20px;flex-wrap:wrap;}
 #error-msg{display:none;background:#3b1f1f;border:1px solid #5c2a2a;border-radius:10px;color:#f87171;padding:14px 18px;font-size:.88rem;margin-top:16px;line-height:1.6;}
+
+/* Camera overlay */
+#camera-overlay{display:none;position:fixed;inset:0;background:#000;z-index:999;flex-direction:column;align-items:center;justify-content:center;}
+#camera-overlay.active{display:flex;}
+#camera-video{width:100%;max-height:80vh;object-fit:cover;}
+#camera-controls{display:flex;gap:16px;margin-top:16px;align-items:center;}
+#camera-shoot{width:64px;height:64px;border-radius:50%;background:#fff;border:4px solid #7c9ef8;cursor:pointer;flex-shrink:0;}
+#camera-close{background:#232738;border:1px solid #2e3349;color:#c8cfe0;border-radius:10px;padding:10px 20px;cursor:pointer;font-size:.9rem;}
 </style>
 </head>
 <body>
@@ -102,14 +110,13 @@ header p { color: #8892a4; margin-top: 8px; font-size: .95rem; }
     <h2>Загрузите фото или сделайте снимок</h2>
     <p>Фото в полный рост или по пояс · спереди или сбоку · JPG / PNG</p>
     <div class="upload-actions">
-      <label for="camera-input" class="btn btn-camera" style="cursor:pointer;">
+      <button id="open-camera-btn" class="btn btn-camera">
         <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
           <path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"/>
           <circle cx="12" cy="13" r="4"/>
         </svg>
         Сфотографировать
-      </label>
-      <input type="file" id="camera-input" accept="image/*" capture="environment" style="display:none">
+      </button>
       <label for="file-input" class="btn" style="cursor:pointer;">
         <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
           <path d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/>
@@ -117,6 +124,15 @@ header p { color: #8892a4; margin-top: 8px; font-size: .95rem; }
         Выбрать из галереи
       </label>
       <input type="file" id="file-input" accept="image/*" style="display:none">
+    </div>
+  </div>
+
+  <!-- Camera overlay -->
+  <div id="camera-overlay">
+    <video id="camera-video" autoplay playsinline muted></video>
+    <div id="camera-controls">
+      <button id="camera-close">Отмена</button>
+      <button id="camera-shoot"></button>
     </div>
   </div>
 
@@ -192,7 +208,6 @@ if (window.Telegram && window.Telegram.WebApp) {
 
 var uploadSection = document.getElementById('upload-section');
 var fileInput     = document.getElementById('file-input');
-var cameraInput   = document.getElementById('camera-input');
 var loadingEl     = document.getElementById('loading');
 var loadingText   = document.getElementById('loading-text');
 var loadingSub    = document.getElementById('loading-sub');
@@ -211,9 +226,47 @@ uploadSection.addEventListener('drop', function(e){
 fileInput.addEventListener('change', function(e){
   if (e.target.files[0]) processFile(e.target.files[0]);
 });
-cameraInput.addEventListener('change', function(e){
-  if (e.target.files[0]) processFile(e.target.files[0]);
+
+// ── In-app camera via getUserMedia ────────────────────────────────────────────
+var cameraOverlay  = document.getElementById('camera-overlay');
+var cameraVideo    = document.getElementById('camera-video');
+var _cameraStream  = null;
+
+document.getElementById('open-camera-btn').addEventListener('click', function() {
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    showError('Камера недоступна в этом браузере.'); return;
+  }
+  navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false })
+    .then(function(stream) {
+      _cameraStream = stream;
+      cameraVideo.srcObject = stream;
+      cameraOverlay.classList.add('active');
+    })
+    .catch(function(err) {
+      showError('Нет доступа к камере: ' + (err.message || err.name));
+    });
 });
+
+document.getElementById('camera-close').addEventListener('click', function() {
+  stopCamera();
+});
+
+document.getElementById('camera-shoot').addEventListener('click', function() {
+  var cap = document.createElement('canvas');
+  cap.width  = cameraVideo.videoWidth;
+  cap.height = cameraVideo.videoHeight;
+  cap.getContext('2d').drawImage(cameraVideo, 0, 0);
+  stopCamera();
+  cap.toBlob(function(blob) {
+    processFile(new File([blob], 'photo.jpg', { type: 'image/jpeg' }));
+  }, 'image/jpeg', 0.92);
+});
+
+function stopCamera() {
+  if (_cameraStream) { _cameraStream.getTracks().forEach(function(t){ t.stop(); }); _cameraStream = null; }
+  cameraVideo.srcObject = null;
+  cameraOverlay.classList.remove('active');
+}
 
 // ── MoveNet setup ─────────────────────────────────────────────────────────────
 var detectorInstance = null;
@@ -742,8 +795,8 @@ function resetApp() {
   loadingEl.style.display     = 'none';
   errorEl.style.display       = 'none';
   uploadSection.style.display = 'block';
-  fileInput.value   = '';
-  cameraInput.value = '';
+  fileInput.value = '';
+  stopCamera();
 }
 
 function showError(msg) {
