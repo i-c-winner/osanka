@@ -401,11 +401,12 @@ function onPose(pose) {
     var topScores = kps.slice().sort(function(a,b){ return b.score - a.score; })
       .slice(0, 5).map(function(kp){ return kp.part + ':' + kp.score.toFixed(2); }).join(', ');
     var backend = (typeof tf !== 'undefined' && tf.getBackend) ? tf.getBackend() : '?';
+    // Show what MoveNet actually analysed — critical for diagnosing orientation issues
+    var debugThumb = _poseCanvas ? '<br><img src="' + _poseCanvas.toDataURL('image/jpeg', 0.6) + '" style="max-width:100%;border-radius:6px;margin-top:8px" />' : '';
     showError(
       'Обнаружено только ' + goodCount + ' точек тела (backend: ' + backend + ').<br>' +
-      '<small style="color:#f87171">Топ-5 score: ' + topScores + '</small><br><br>' +
-      '<b>Советы:</b> фото в полный рост или по пояс, хорошее освещение, ' +
-      'человек стоит лицом к камере или строго сбоку, фигура не обрезана по краям.'
+      '<small style="color:#f87171">Топ-5 score: ' + topScores + '</small>' +
+      debugThumb
     );
     uploadSection.style.display = 'block'; return;
   }
