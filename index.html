@@ -249,6 +249,27 @@ function moveNetToKps(keypoints) {
   });
 }
 
+var _inputCanvas = null; // processed, EXIF-corrected canvas for TF.js
+
+function buildCanvas(source, w, h) {
+  var maxDim = 1280;
+  var scale = Math.min(1, maxDim / Math.max(w, h, 1));
+  var c = document.createElement('canvas');
+  c.width  = Math.round(w * scale) || 640;
+  c.height = Math.round(h * scale) || 640;
+  c.getContext('2d').drawImage(source, 0, 0, c.width, c.height);
+  return c;
+}
+
+function onCanvasReady(canvas) {
+  _inputCanvas = canvas;
+  sourceImg._procWidth  = canvas.width;
+  sourceImg._procHeight = canvas.height;
+  // Render the corrected image into sourceImg for drawSkeleton
+  sourceImg.onload = startAnalysis;
+  sourceImg.src    = canvas.toDataURL('image/jpeg', 0.85);
+}
+
 function processFile(file) {
   if (!file.type.startsWith('image/')) { showError('Выберите файл изображения (JPG, PNG, WebP…)'); return; }
   errorEl.style.display       = 'none';
@@ -258,28 +279,31 @@ function processFile(file) {
   loadingText.textContent     = 'Загрузка модели MoveNet…';
   loadingSub.textContent      = 'Первый запуск загружает ~6 МБ';
 
+  // createImageBitmap with imageOrientation applies EXIF rotation automatically
+  // — critical for mobile photos which are physically rotated 90°
+  if (typeof createImageBitmap !== 'undefined') {
+    createImageBitmap(file, { imageOrientation: 'from-image', resizeQuality: 'medium' })
+      .then(function(bmp) {
+        onCanvasReady(buildCanvas(bmp, bmp.width, bmp.height));
+      })
+      .catch(function() { loadViaReader(file); });
+  } else {
+    loadViaReader(file);
+  }
+}
+
+function loadViaReader(file) {
   var reader = new FileReader();
   reader.onerror = function(){ showError('Не удалось прочитать файл изображения.'); };
   reader.onload = function(e) {
-    sourceImg.onload  = startAnalysis;
-    sourceImg.onerror = function(){ showError('Не удалось загрузить изображение. Попробуйте JPG или PNG.'); };
-    sourceImg.src = e.target.result;
+    var tmp = new Image();
+    tmp.onerror = function(){ showError('Не удалось загрузить изображение.'); };
+    tmp.onload  = function() {
+      onCanvasReady(buildCanvas(tmp, tmp.naturalWidth || tmp.width, tmp.naturalHeight || tmp.height));
+    };
+    tmp.src = e.target.result;
   };
   reader.readAsDataURL(file);
-}
-
-function imageToCanvas(img) {
-  // Draw HTMLImageElement onto a canvas — required for TF.js in mobile WebViews
-  var maxDim = 1280;
-  var w = img.naturalWidth  || img.width;
-  var h = img.naturalHeight || img.height;
-  if (w === 0 || h === 0) { w = 640; h = 640; }
-  var scale = Math.min(1, maxDim / Math.max(w, h));
-  var c = document.createElement('canvas');
-  c.width  = Math.round(w * scale);
-  c.height = Math.round(h * scale);
-  c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
-  return c;
 }
 
 function startAnalysis() {
@@ -288,15 +312,10 @@ function startAnalysis() {
     uploadSection.style.display = 'block';
   }, 90000);
 
-  var inputCanvas = imageToCanvas(sourceImg);
-  // Keep naturalWidth/Height in sync so downstream scaling stays correct
-  sourceImg._procWidth  = inputCanvas.width;
-  sourceImg._procHeight = inputCanvas.height;
-
   getDetector().then(function(det) {
     loadingText.textContent = 'Анализ позы…';
     loadingSub.textContent  = '';
-    return det.estimatePoses(inputCanvas);
+    return det.estimatePoses(_inputCanvas);
   }).then(function(poses) {
     clearTimeout(loadTimeout);
     loadingEl.style.display = 'none';
