@@ -291,7 +291,14 @@ document.getElementById('camera-shoot').addEventListener('click', function() {
     cap.width  = vw2;
     cap.height = vh2;
     cap.getContext('2d').drawImage(cameraVideo, 0, 0);
+    // Hide camera + show spinner immediately — before async toBlob
     stopCamera();
+    errorEl.style.display       = 'none';
+    uploadSection.style.display = 'none';
+    resultsEl.style.display     = 'none';
+    loadingEl.style.display     = 'block';
+    loadingText.textContent     = 'Загрузка модели MoveNet…';
+    loadingSub.textContent      = 'Первый запуск загружает ~6 МБ';
     cap.toBlob(function(blob) {
       if (!blob || blob.size < 100) { showError('Не удалось захватить кадр — попробуйте ещё раз.'); return; }
       processFile(new File([blob], 'photo.jpg', { type: 'image/jpeg' }));
