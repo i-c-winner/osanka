@@ -238,11 +238,21 @@ document.getElementById('open-camera-btn').addEventListener('click', function() 
     showError('Камера недоступна в этом браузере.'); return;
   }
   var constraints = { video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false };
+  var shootBtn = document.getElementById('camera-shoot');
   navigator.mediaDevices.getUserMedia(constraints)
     .then(function(stream) {
       _cameraStream = stream;
       cameraVideo.srcObject = stream;
       cameraOverlay.classList.add('active');
+      // Disable shoot button until video frame is available
+      shootBtn.disabled = true;
+      shootBtn.style.opacity = '0.4';
+      cameraVideo.addEventListener('loadeddata', function() {
+        if (cameraVideo.videoWidth > 0 && cameraVideo.videoHeight > 0) {
+          shootBtn.disabled = false;
+          shootBtn.style.opacity = '1';
+        }
+      }, { once: true });
       var playPromise = cameraVideo.play();
       if (playPromise !== undefined) {
         playPromise.catch(function(e) {
@@ -262,20 +272,40 @@ document.getElementById('camera-close').addEventListener('click', function() {
 });
 
 document.getElementById('camera-shoot').addEventListener('click', function() {
-  var cap = document.createElement('canvas');
-  cap.width  = cameraVideo.videoWidth;
-  cap.height = cameraVideo.videoHeight;
-  cap.getContext('2d').drawImage(cameraVideo, 0, 0);
-  stopCamera();
-  cap.toBlob(function(blob) {
-    processFile(new File([blob], 'photo.jpg', { type: 'image/jpeg' }));
-  }, 'image/jpeg', 0.92);
+  var vw = cameraVideo.videoWidth;
+  var vh = cameraVideo.videoHeight;
+  if (!vw || !vh) {
+    // Video metadata not ready yet — wait for it then capture
+    cameraVideo.addEventListener('loadeddata', function onReady() {
+      cameraVideo.removeEventListener('loadeddata', onReady);
+      doCapture();
+    }, { once: true });
+    return;
+  }
+  doCapture();
+  function doCapture() {
+    var vw2 = cameraVideo.videoWidth;
+    var vh2 = cameraVideo.videoHeight;
+    if (!vw2 || !vh2) { showError('Камера ещё не готова — попробуйте ещё раз.'); stopCamera(); return; }
+    var cap = document.createElement('canvas');
+    cap.width  = vw2;
+    cap.height = vh2;
+    cap.getContext('2d').drawImage(cameraVideo, 0, 0);
+    stopCamera();
+    cap.toBlob(function(blob) {
+      if (!blob || blob.size < 100) { showError('Не удалось захватить кадр — попробуйте ещё раз.'); return; }
+      processFile(new File([blob], 'photo.jpg', { type: 'image/jpeg' }));
+    }, 'image/jpeg', 0.92);
+  }
 });
 
 function stopCamera() {
   if (_cameraStream) { _cameraStream.getTracks().forEach(function(t){ t.stop(); }); _cameraStream = null; }
   cameraVideo.srcObject = null;
   cameraOverlay.classList.remove('active');
+  var shootBtn = document.getElementById('camera-shoot');
+  shootBtn.disabled = false;
+  shootBtn.style.opacity = '1';
 }
 
 // ── MoveNet setup ─────────────────────────────────────────────────────────────
@@ -450,7 +480,9 @@ function startAnalysis() {
   }).catch(function(err) {
     clearTimeout(loadTimeout);
     console.error(err);
-    showError('Ошибка анализа: ' + (err.message || String(err)) + '<br><small>backend: ' + (tf.getBackend ? tf.getBackend() : '?') + ', img: ' + w + '×' + h + '</small>');
+    var cw2 = _poseCanvas ? _poseCanvas.width  : '?';
+    var ch2 = _poseCanvas ? _poseCanvas.height : '?';
+    showError('Ошибка анализа: ' + (err.message || String(err)) + '<br><small>backend: ' + (tf.getBackend ? tf.getBackend() : '?') + ', img: ' + cw2 + '×' + ch2 + '</small>');
     uploadSection.style.display = 'block';
   });
 }
